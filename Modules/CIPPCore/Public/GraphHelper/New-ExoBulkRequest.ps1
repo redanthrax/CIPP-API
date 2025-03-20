@@ -45,12 +45,12 @@ function New-ExoBulkRequest {
             $IdToCmdletName = @{}
 
             # Split the cmdletArray into batches of 10
-            $batches = [System.Collections.ArrayList]@()
+            $batches = [System.Collections.Generic.List[object]]::new()
             for ($i = 0; $i -lt $cmdletArray.Length; $i += 10) {
-                $null = $batches.Add($cmdletArray[$i..[math]::Min($i + 9, $cmdletArray.Length - 1)])
+                $batches.Add($cmdletArray[$i..[math]::Min($i + 9, $cmdletArray.Length - 1)])
             }
 
-            $ReturnedData = @()
+            $ReturnedData = [System.Collections.Generic.List[object]]::new()
             foreach ($batch in $batches) {
                 $BatchBodyObj = @{
                     requests = @()
@@ -85,12 +85,15 @@ function New-ExoBulkRequest {
                 }
                 $BatchBodyJson = ConvertTo-Json -InputObject $BatchBodyObj -Depth 10
                 $Results = Invoke-RestMethod $BatchURL -ResponseHeadersVariable responseHeaders -Method POST -Body $BatchBodyJson -Headers $Headers -ContentType 'application/json; charset=utf-8'
-                $ReturnedData = $ReturnedData + $Results.responses
+                $ReturnedData.Add($Results.responses)
+
                 Write-Host "Batch #$($batches.IndexOf($batch) + 1) of $($batches.Count) processed"
             }
         } catch {
             # Error handling (omitted for brevity)
         }
+
+        Write-Information ($ReturnedHeaders | ConvertTo-Json -Depth 10)
 
         # Process the returned data
         if ($ReturnWithCommand) {
@@ -103,7 +106,7 @@ function New-ExoBulkRequest {
                 if ($body.'@adminapi.warnings') {
                     Write-Warning ($body.'@adminapi.warnings' | Out-String)
                 }
-                if ($body.error) {
+                if (![string]::IsNullOrEmpty($body.error.details.message) -or ![string]::IsNullOrEmpty($body.error.message)) {
                     if ($body.error.details.message) {
                         $msg = [pscustomobject]@{ error = $body.error.details.message; target = $body.error.details.target }
                     } else {
@@ -127,7 +130,7 @@ function New-ExoBulkRequest {
                 if ($body.'@adminapi.warnings') {
                     Write-Warning ($body.'@adminapi.warnings' | Out-String)
                 }
-                if ($body.error) {
+                if (![string]::IsNullOrEmpty($body.error.details.message) -or ![string]::IsNullOrEmpty($body.error.message)) {
                     if ($body.error.details.message) {
                         $msg = [pscustomobject]@{ error = $body.error.details.message; target = $body.error.details.target }
                     } else {

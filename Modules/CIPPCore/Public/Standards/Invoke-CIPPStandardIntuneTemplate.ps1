@@ -35,40 +35,88 @@ function Invoke-CIPPStandardIntuneTemplate {
     $Table = Get-CippTable -tablename 'templates'
     $Filter = "PartitionKey eq 'IntuneTemplate'"
     $Request = @{body = $null }
-    $Request.body = (Get-CIPPAzDataTableEntity @Table -Filter $Filter | Where-Object -Property RowKey -Like "$($Settings.TemplateList.value)*").JSON | ConvertFrom-Json
-    $displayname = $request.body.Displayname
-    $description = $request.body.Description
-    $RawJSON = $Request.body.RawJSON
-    $ExistingPolicy = Get-CIPPIntunePolicy -tenantFilter $Tenant -DisplayName $displayname -TemplateType $Request.body.Type
-    if ($ExistingPolicy) {
-        $JSONExistingPolicy = $ExistingPolicy.cippconfiguration | ConvertFrom-Json
-        $JSONTemplate = $RawJSON | ConvertFrom-Json
-        $Compare = Compare-CIPPIntuneObject -ReferenceObject $JSONTemplate -DifferenceObject $JSONExistingPolicy -compareType $Request.body.Type
+
+    $CompareList = foreach ($Template in $Settings) {
+        Write-Host "working on template: $($Template | ConvertTo-Json)"
+        $Request.body = (Get-CIPPAzDataTableEntity @Table -Filter $Filter | Where-Object -Property RowKey -Like "$($Template.TemplateList.value)*").JSON | ConvertFrom-Json -ErrorAction SilentlyContinue
+        if ($Request.body -eq $null) {
+            Write-LogMessage -API 'Standards' -tenant $tenant -message "Failed to find template $($Template.TemplateList.value). Has this Intune Template been deleted?" -sev 'Error'
+            continue
+        }
+        $displayname = $request.body.Displayname
+        $description = $request.body.Description
+        $RawJSON = $Request.body.RawJSON
+        $ExistingPolicy = Get-CIPPIntunePolicy -tenantFilter $Tenant -DisplayName $displayname -TemplateType $Request.body.Type
+        if ($ExistingPolicy) {
+            $RawJSON = Get-CIPPTextReplacement -Text $RawJSON -TenantFilter $Tenant
+            $JSONExistingPolicy = $ExistingPolicy.cippconfiguration | ConvertFrom-Json
+            $JSONTemplate = $RawJSON | ConvertFrom-Json
+            $Compare = Compare-CIPPIntuneObject -ReferenceObject $JSONTemplate -DifferenceObject $JSONExistingPolicy -compareType $Request.body.Type
+        }
+        if ($Compare) {
+            [PSCustomObject]@{
+                MatchFailed      = $true
+                displayname      = $displayname
+                description      = $description
+                compare          = $Compare
+                rawJSON          = $RawJSON
+                body             = $Request.body
+                assignTo         = $Template.AssignTo
+                excludeGroup     = $Template.excludeGroup
+                remediate        = $Template.remediate
+                existingPolicyId = $ExistingPolicy.id
+            }
+        } else {
+            [PSCustomObject]@{
+                MatchFailed      = $false
+                displayname      = $displayname
+                description      = $description
+                compare          = $Compare
+                rawJSON          = $RawJSON
+                body             = $Request.body
+                assignTo         = $Template.AssignTo
+                excludeGroup     = $Template.excludeGroup
+                remediate        = $Template.remediate
+                existingPolicyId = $ExistingPolicy.id
+
+            }
+        }
     }
+
     If ($Settings.remediate -eq $true) {
         Write-Host 'starting template deploy'
-        Write-Host "The full settings are $($Settings | ConvertTo-Json)"
-        try {
-            $Settings.customGroup ? ($Settings.AssignTo = $Settings.customGroup) : $null
-            Set-CIPPIntunePolicy -TemplateType $Request.body.Type -Description $description -DisplayName $displayname -RawJSON $RawJSON -AssignTo $Settings.AssignTo -ExcludeGroup $Settings.excludeGroup -tenantFilter $Tenant
-        } catch {
-            $ErrorMessage = Get-NormalizedError -Message $_.Exception.Message
-            Write-LogMessage -API 'Standards' -tenant $tenant -message "Failed to create or update Intune Template $displayname, Error: $ErrorMessage" -sev 'Error'
+        foreach ($Template in $CompareList | Where-Object -Property remediate -EQ $true) {
+            Write-Host "working on template deploy: $($Template | ConvertTo-Json)"
+            try {
+                $Template.customGroup ? ($Template.AssignTo = $Template.customGroup) : $null
+                Set-CIPPIntunePolicy -TemplateType $Template.body.Type -Description $description -DisplayName $displayname -RawJSON $RawJSON -AssignTo $Template.AssignTo -ExcludeGroup $Template.excludeGroup -tenantFilter $Tenant
+            } catch {
+                $ErrorMessage = Get-NormalizedError -Message $_.Exception.Message
+                Write-LogMessage -API 'Standards' -tenant $tenant -message "Failed to create or update Intune Template $PolicyName, Error: $ErrorMessage" -sev 'Error'
+            }
         }
 
     }
 
     if ($Settings.alert) {
-        #Replace the alert method used in standards with a prettier one, link to the report/template, link to a compare. extended table. etc
-        if ($compare) {
-            Write-LogMessage -API 'Standards' -tenant $Tenant -message "Policy $($displayname) does not match the expected configuration." -sev Alert
-        } else {
-            $ExistingPolicy ? (Write-LogMessage -API 'Standards' -tenant $Tenant -message "Policy $($displayname) has the correct configuration." -sev Info) : (Write-LogMessage -API 'Standards' -tenant $Tenant -message "Policy $($displayname) is missing." -sev Alert)
+        foreach ($Template in $CompareList) {
+            $AlertObj = $Template | Select-Object -Property displayname, description, compare, assignTo, excludeGroup, existingPolicyId
+            if ($Template.compare) {
+                Write-StandardsAlert -message "Template $($Template.displayname) does not match the expected configuration." -object $AlertObj -tenant $Tenant -standardName 'IntuneTemplate' -standardId $Settings.templateId
+                Write-LogMessage -API 'Standards' -tenant $Tenant -message "Template $($Template.displayname) does not match the expected configuration. We've generated an alert" -sev info
+            } else {
+                if ($Template.ExistingPolicyId) {
+                    Write-LogMessage -API 'Standards' -tenant $Tenant -message "Template $($Template.displayname) has the correct configuration." -sev Info
+                } else {
+                    Write-StandardsAlert -message "Template $($Template.displayname) is missing." -object $AlertObj -tenant $Tenant -standardName 'IntuneTemplate' -standardId $Settings.templateId
+                    Write-LogMessage -API 'Standards' -tenant $Tenant -message "Template $($Template.displayname) is missing." -sev info
+                }
+            }
         }
     }
 
     if ($Settings.report) {
-        #think about how to store this.
+        #think about how to store this. Consideration: standards are stored seperately from BPA so they can be stored in the same format as the input.
         Add-CIPPBPAField -FieldName "policy-$displayname" -FieldValue $Compare -StoreAs bool -Tenant $tenant
     }
 }
