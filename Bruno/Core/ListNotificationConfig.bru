@@ -1,0 +1,21 @@
+meta {
+  name: ListNotificationConfig
+  type: http
+  seq: 3
+}
+
+get {
+  url: {{baseUrl}}/ListNotificationConfig
+  body: none
+  auth: inherit
+}
+
+headers {
+  x-ms-client-principal: {{encodedClientPrincipal}}
+  x-ms-client-principal-name: {{clientPrincipalName}}
+  Content-Type: application/json
+}
+
+body:json {
+  {}
+}

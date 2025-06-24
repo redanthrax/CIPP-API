@@ -1,0 +1,38 @@
+meta {
+  name: ExecNotificationConfig
+  type: http
+  seq: 1
+}
+
+post {
+  url: {{baseUrl}}/ExecNotificationConfig
+  body: json
+  auth: inherit
+}
+
+headers {
+  x-ms-client-principal: {{encodedClientPrincipal}}
+  x-ms-client-principal-name: {{clientPrincipalName}}
+  Content-Type: application/json
+}
+
+body:json {
+  {
+    "webhook":"",
+    "logsToInclude":[
+      {"label":"Adding a group","value":"AddGroup"},
+      {"label":"Editing a tenant","value":"EditTenant"},
+      {"label":"Editing a user","value":"EditUser"},
+      {"label":"Executing the offboard wizard","value":"ExecOffboardUser"},
+      {"label":"Adding a tenant","value":"NewTenant"},
+      {"label":"Token Events","value":"TokensUpdater"}
+    ],
+    "Severity":[
+      {"label":"Alert","value":"Alert"},
+      {"label":"Critical","value":"Critical"}
+    ],
+    "onePerTenant":false,
+    "sendtoIntegration":false,
+    "includeTenantId":true
+  }
+}

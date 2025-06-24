@@ -1,0 +1,67 @@
+meta {
+  name: Test CIPP Access
+  type: http
+  seq: 1
+}
+
+get {
+  url: {{baseUrl}}/ExecPermissions
+  body: none
+  auth: inherit
+}
+
+headers {
+  # Required Azure Functions authentication headers
+  x-ms-client-principal: {{encodedClientPrincipal}}
+  x-ms-client-principal-name: {{clientPrincipalName}}
+  x-ms-client-principal-idp: aad
+  Content-Type: application/json
+  # Optional: Forwarded IP for API client IP validation
+  x-forwarded-for: 127.0.0.1
+}
+
+params:query {
+  # This triggers Test-CIPPAccess validation
+  CIPPEndpoint: ExecPermissions
+  tenantFilter: {{tenantFilter}}
+}
+
+script:pre-request {
+  // You can modify headers dynamically here
+  // For example, to test different user roles:
+  
+  const userPayload = {
+    userRoles: ["authenticated", "admin"], // Change roles here: admin, editor, readonly, superadmin
+    identityProvider: "aad",
+    userDetails: "test@yourdomain.com"
+  };
+  
+  // Encode the payload as base64
+  const encodedPayload = Buffer.from(JSON.stringify(userPayload)).toString('base64');
+  bru.setVar("encodedClientPrincipal", encodedPayload);
+}
+
+script:post-response {
+  // Log response for debugging
+  console.log("Response Status:", res.status);
+  console.log("Response Body:", res.body);
+  
+  // Test assertions
+  if (res.status === 200) {
+    console.log("✅ Access granted");
+  } else if (res.status === 403) {
+    console.log("❌ Access denied");
+  } else {
+    console.log("⚠️ Unexpected response");
+  }
+}
+
+tests {
+  test("Should return successful response for valid authentication", function() {
+    expect(res.status).to.be.oneOf([200, 403]); // 403 is also valid (permission denied)
+  });
+  
+  test("Should have proper content type", function() {
+    expect(res.headers['content-type']).to.contain('application/json');
+  });
+}

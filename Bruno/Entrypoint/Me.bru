@@ -1,0 +1,17 @@
+meta {
+  name: Me
+  type: http
+  seq: 1
+}
+
+get {
+  url: {{baseUrl}}/Me
+  body: none
+  auth: inherit
+}
+
+headers {
+  x-ms-client-principal: {{encodedClientPrincipal}}
+  x-ms-client-principal-name: {{clientPrincipalName}}
+  Content-Type: application/json
+}

@@ -115,13 +115,20 @@ function Push-ExecScheduledCommand {
             '*psa*' { Send-CIPPAlert -Type 'psa' -Title $title -HTMLContent $HTML -TenantFilter $Tenant }
             '*email*' { Send-CIPPAlert -Type 'email' -Title $title -HTMLContent $HTML -TenantFilter $Tenant }
             '*webhook*' {
-                $Webhook = [PSCustomObject]@{
-                    'tenantId' = $TenantInfo.customerId
-                    'Tenant'   = $Tenant
-                    'TaskInfo' = $Item.TaskInfo
-                    'Results'  = $Results
-                }
-                Send-CIPPAlert -Type 'webhook' -Title $title -TenantFilter $Tenant -JSONContent $($Webhook | ConvertTo-Json -Depth 20)
+                # Get CIPP URL for action links
+                $CippConfigTable = Get-CippTable -tablename Config
+                $CippConfig = Get-CIPPAzDataTableEntity @CippConfigTable -Filter "PartitionKey eq 'InstanceProperties' and RowKey eq 'CIPPURL'"
+                $CIPPURL = if ($CippConfig.Value) { 'https://{0}' -f $CippConfig.Value } else { $null }
+                
+                # Create standardized webhook alert
+                $StandardAlert = New-CIPPStandardWebhookAlert -AlertType 'ScheduledTask' -Title $title -Message "Scheduled task '$($Item.TaskInfo.Name)' completed for tenant $Tenant" -Severity 'Info' -TenantFilter $Tenant -TenantId $TenantInfo.customerId -Data @{
+                    TaskInfo = $Item.TaskInfo
+                    Results = $Results
+                    Command = $Item.Command
+                    Parameters = $Item.Parameters
+                } -CIPPURL $CIPPURL
+                
+                Send-CIPPAlert -Type 'webhook' -Title $title -TenantFilter $Tenant -JSONContent ($StandardAlert | ConvertTo-Json -Depth 20)
             }
         }
     }

@@ -48,22 +48,37 @@ function Receive-CippHttpTrigger {
     }
 
     if ((Get-Command -Name $FunctionName -ErrorAction SilentlyContinue) -or $FunctionName -eq 'Invoke-Me') {
+        $Access = $false
+
         try {
             $Access = Test-CIPPAccess -Request $Request
-            if ($FunctionName -eq 'Invoke-Me') {
-                return
-            }
-
-            Write-Information "Access: $Access"
-            if ($Access) {
-                & $FunctionName @HttpTrigger
-            }
         } catch {
             Write-Warning "Exception occurred on HTTP trigger ($FunctionName): $($_.Exception.Message)"
             Push-OutputBinding -Name Response -Value ([HttpResponseContext]@{
-                    StatusCode = [HttpStatusCode]::InternalServerError
+                    StatusCode = [HttpStatusCode]::Unauthorized
                     Body       = $_.Exception.Message
                 })
+
+            return
+        }
+
+        if ($FunctionName -eq 'Invoke-Me') {
+            return
+        }
+
+        Write-Information "Access: $Access"
+        if ($Access) {
+            try {
+                & $FunctionName @HttpTrigger
+            }
+            catch {
+                Write-Warning "Exception occurred on HTTP trigger ($FunctionName): $($_.Exception.Message)"
+                Push-OutputBinding -Name Response -Value ([HttpResponseContext]@{
+                        StatusCode = [HttpStatusCode]::InternalServerError
+                        Body       = $_.Exception.Message
+                    })
+                return
+            }
         }
     } else {
         Push-OutputBinding -Name Response -Value ([HttpResponseContext]@{

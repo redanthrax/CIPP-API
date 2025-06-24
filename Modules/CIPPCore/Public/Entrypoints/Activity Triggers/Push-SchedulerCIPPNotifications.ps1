@@ -106,18 +106,34 @@ function Push-SchedulerCIPPNotifications {
     try {
         Write-Information $($config | ConvertTo-Json)
         Write-Information $config.webhook
-        if ($Config.webhook -ne '' -and $null) {
+        if ($Config.webhook -ne '' -and $null -ne $Config.webhook) {
             if ($Currentlog) {
-                $JSONContent = $Currentlog | ConvertTo-Json -Compress
-                Send-CIPPAlert -Type 'webhook' -JSONContent $JSONContent -TenantFilter $Tenant -APIName 'Alerts'
+                # Group logs by tenant for standardized alerts
+                if ($config.onePerTenant) {
+                    foreach ($tenant in ($CurrentLog.Tenant | Sort-Object -Unique)) {
+                        $TenantLogs = $CurrentLog | Where-Object -Property tenant -EQ $tenant
+                        $StandardAlert = New-CIPPStandardWebhookAlert -AlertType 'Log' -Title "CIPP Alert: Alerts found for $tenant" -Message "$($TenantLogs.Count) alerts found starting at $((Get-Date).AddMinutes(-15))" -Severity 'Alert' -TenantFilter $tenant -Data $TenantLogs -CIPPURL $CIPPURL
+                        
+                        Send-CIPPAlert -Type 'webhook' -JSONContent ($StandardAlert | ConvertTo-Json -Depth 20) -TenantFilter $tenant -APIName 'Alerts'
+                    }
+                } else {
+                    $StandardAlert = New-CIPPStandardWebhookAlert -AlertType 'Log' -Title "CIPP Alert: Alerts found" -Message "$($Currentlog.Count) alerts found starting at $((Get-Date).AddMinutes(-15))" -Severity 'Alert' -Data $Currentlog -CIPPURL $CIPPURL
+                    
+                    Send-CIPPAlert -Type 'webhook' -JSONContent ($StandardAlert | ConvertTo-Json -Depth 20) -APIName 'Alerts'
+                }
+                
                 $UpdateLogs = $CurrentLog | ForEach-Object { $_.sentAsAlert = $true; $_ }
                 if ($UpdateLogs) { Add-CIPPAzDataTableEntity @Table -Entity $UpdateLogs -Force }
             }
 
             if ($CurrentStandardsLogs) {
-                $JSONContent = New-CIPPAlertTemplate -Data $Data -Format 'json' -InputObject 'table' -CIPPURL $CIPPURL
-                $CurrentStandardsLogs | ConvertTo-Json -Compress
-                Send-CIPPAlert -Type 'webhook' -JSONContent $JSONContent -TenantFilter $Tenant -APIName 'Alerts'
+                foreach ($tenant in ($CurrentStandardsLogs.Tenant | Sort-Object -Unique)) {
+                    $TenantStandardsLogs = $CurrentStandardsLogs | Where-Object -Property tenant -EQ $tenant
+                    $StandardAlert = New-CIPPStandardWebhookAlert -AlertType 'Standard' -Title "Standards out of sync for $tenant" -Message "$($TenantStandardsLogs.Count) standards are out of sync" -Severity 'Warning' -TenantFilter $tenant -Data $TenantStandardsLogs -CIPPURL $CIPPURL
+                    
+                    Send-CIPPAlert -Type 'webhook' -JSONContent ($StandardAlert | ConvertTo-Json -Depth 20) -TenantFilter $tenant -APIName 'Alerts'
+                }
+                
                 $updateStandards = $CurrentStandardsLogs | ForEach-Object {
                     if ($_.PSObject.Properties.Name -contains 'sentAsAlert') {
                         $_.sentAsAlert = $true

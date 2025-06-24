@@ -1,0 +1,50 @@
+meta {
+  name: Test API Client Access
+  type: http
+  seq: 2
+}
+
+get {
+  url: {{baseUrl}}/ExecPermissions
+  body: none
+  auth: inherit
+}
+
+headers {
+  # API Client authentication headers (simulates registered API client)
+  x-ms-client-principal-name: {{apiClientId}}
+  x-ms-client-principal-idp: aad
+  Content-Type: application/json
+  # IP address for API client validation
+  x-forwarded-for: 127.0.0.1
+}
+
+params:query {
+  CIPPEndpoint: ExecPermissions
+  tenantFilter: {{tenantFilter}}
+}
+
+script:pre-request {
+  // For API client authentication, we use the client ID as the principal name
+  // and set the IDP to 'aad' to trigger API client validation path
+  console.log("Testing API Client Access with ID:", bru.getVar("apiClientId"));
+}
+
+script:post-response {
+  console.log("API Client Response Status:", res.status);
+  console.log("API Client Response Body:", res.body);
+  
+  if (res.status === 200) {
+    console.log("✅ API Client access granted");
+  } else if (res.status === 403) {
+    console.log("❌ API Client access denied - check client registration and IP allowlist");
+  } else {
+    console.log("⚠️ Unexpected API client response");
+  }
+}
+
+tests {
+  test("Should handle API client authentication", function() {
+    expect(res.status).to.be.oneOf([200, 403]);
+  });
+}

@@ -42,14 +42,18 @@ function Invoke-ExecAddAlert {
             Send-CIPPAlert @CIPPAlert
         }
         if ($Request.Body.sendWebhookNow -eq $true) {
-            $JSONContent = @{
-                Title = $Title
-                Text  = $Request.Body.text
-            } | ConvertTo-Json -Compress
+            # Get CIPP URL for action links
+            $CippConfigTable = Get-CippTable -tablename Config
+            $CippConfig = Get-CIPPAzDataTableEntity @CippConfigTable -Filter "PartitionKey eq 'InstanceProperties' and RowKey eq 'CIPPURL'"
+            $CIPPURL = if ($CippConfig.Value) { 'https://{0}' -f $CippConfig.Value } else { $null }
+            
+            # Create standardized webhook alert
+            $StandardAlert = New-CIPPStandardWebhookAlert -AlertType 'Notification' -Title $Title -Message $Request.Body.text -Severity 'Info' -CIPPURL $CIPPURL
+            
             $CIPPAlert = @{
                 Type        = 'webhook'
                 Title       = $Title
-                JSONContent = $JSONContent
+                JSONContent = ($StandardAlert | ConvertTo-Json -Depth 20)
             }
             Send-CIPPAlert @CIPPAlert
         }
